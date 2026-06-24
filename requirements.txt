@@ -1,0 +1,4 @@
+polars>=0.20.0
+orjson>=3.9.0
+sentence-transformers
+faiss-cpu
