@@ -1,4 +1,11 @@
+# Data Processing & Utilities
 polars>=0.20.0
 orjson>=3.9.0
+numpy
+
+# Machine Learning & Search
 sentence-transformers
 faiss-cpu
+
+# Document Parsing
+python-docx
