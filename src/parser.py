@@ -28,8 +28,6 @@ from pathlib import Path
 import orjson
 import polars as pl
 
-# ── config import ──────────────────────────────────────────────────────────────
-# Works whether called as `python -m src.parser` or `python src/parser.py`
 import os
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import (
@@ -47,7 +45,6 @@ log = logging.getLogger(__name__)
 # ── Loading ────────────────────────────────────────────────────────────────────
 
 def load_candidates(path: Path) -> list[dict]:
-    """Stream-load .jsonl or .jsonl.gz — memory efficient for 100K records."""
     log.info("Loading candidates from %s", path)
     opener = gzip.open if path.suffix == ".gz" else open
     mode   = "rb" if path.suffix == ".gz" else "r"
@@ -72,18 +69,16 @@ def _n(s: str) -> str:
 
 
 def _is_consulting_only(career: list[dict]) -> bool:
-    """Disqualify only if EVERY role is at a known services firm."""
     if not career:
         return False
     for role in career:
         company = _n(role.get("company", ""))
         if not any(firm in company for firm in PURE_SERVICES_FIRMS):
-            return False   # found a non-consulting company → keep
+            return False
     return True
 
 
 def _is_research_only(career: list[dict]) -> bool:
-    """Disqualify if all roles are academic/research with no product deployment."""
     if not career:
         return False
     for role in career:
@@ -91,20 +86,49 @@ def _is_research_only(career: list[dict]) -> bool:
         title    = _n(role.get("title", ""))
         if industry not in ("academic", "research", "education", "university"):
             if not any(rt in title for rt in RESEARCH_ONLY_TITLES):
-                return False   # product role found → keep
+                return False
     return True
 
 
 def _is_wrong_domain_only(skills: list[dict]) -> bool:
-    """CV/Speech/Robotics only with zero NLP/IR → disqualify."""
     names    = {_n(s.get("name", "")) for s in skills}
     has_bad  = names & WRONG_DOMAIN_SKILLS
     has_good = names & NLP_IR_SKILLS
     return bool(has_bad) and not has_good and len(has_bad) >= 3
 
 
+def _has_no_relevant_skills(skills: list[dict], career: list[dict]) -> bool:
+    """
+    Disqualify if candidate has ZERO skills from NLP_IR_SKILLS | REQUIRED_SKILLS
+    AND their career titles contain no AI/ML signal either.
+
+    This catches Civil Engineers, Accountants, HR Managers etc. who slip through
+    other filters because they have good behavioral signals (short notice, open to work)
+    but zero technical relevance to the JD.
+
+    We check career titles too so we don't drop someone with relevant experience
+    who just hasn't listed skills properly.
+    """
+    skill_names = {_n(s.get("name", "")) for s in skills}
+    if skill_names & (NLP_IR_SKILLS | REQUIRED_SKILLS):
+        return False   # has at least one relevant skill → keep
+
+    # Second chance: check career titles for AI/ML signal
+    ai_title_keywords = {
+        "machine learning", "ml engineer", "ai engineer", "data scientist",
+        "nlp", "deep learning", "research scientist", "applied scientist",
+        "recommendation", "search engineer", "ranking engineer",
+        "applied ml", "computer vision",
+    }
+    for role in career:
+        title = _n(role.get("title", ""))
+        if any(kw in title for kw in ai_title_keywords):
+            return False
+
+    return True   # no relevant skills AND no relevant titles → disqualify
+
+
 def _is_location_mismatch(profile: dict, signals: dict) -> bool:
-    """Outside India AND unwilling to relocate → disqualify."""
     country = _n(profile.get("country", ""))
     willing = signals.get("willing_to_relocate", False)
     if country in ("india", "in", ""):
@@ -113,10 +137,6 @@ def _is_location_mismatch(profile: dict, signals: dict) -> bool:
 
 
 def _is_ghost(signals: dict) -> bool:
-    """
-    Ghost = inactive > 6 months AND not open-to-work AND response rate < 10%.
-    Using AND logic: someone who forgot to log in but still replies = keep.
-    """
     last_str = signals.get("last_active_date", "")
     try:
         days_inactive = (TODAY - date.fromisoformat(last_str)).days
@@ -136,17 +156,12 @@ def _is_ghost(signals: dict) -> bool:
 # ── Honeypot scoring ──────────────────────────────────────────────────────────
 
 def _honeypot_score(candidate: dict) -> float:
-    """
-    Soft suspicion score 0–1. Not a hard disqualifier — the ranker
-    applies this as a multiplier penalty.
-    """
     score   = 0.0
     profile = candidate.get("profile", {})
     career  = candidate.get("career_history", [])
     skills  = candidate.get("skills", [])
     signals = candidate.get("redrob_signals", {})
 
-    # 1. Expert/advanced skills with zero duration — classic stuffing
     expert_zero = sum(
         1 for s in skills
         if s.get("proficiency") in ("expert", "advanced")
@@ -155,7 +170,6 @@ def _honeypot_score(candidate: dict) -> float:
     if expert_zero > MAX_EXPERT_ZERO_DURATION_SKILLS:
         score += 0.40
 
-    # 2. Claimed YOE vs actual career start dates
     claimed_yoe = float(profile.get("years_of_experience", 0))
     earliest_start = None
     for role in career:
@@ -170,12 +184,10 @@ def _honeypot_score(candidate: dict) -> float:
         if claimed_yoe > actual_yoe + 3:
             score += 0.35
 
-    # 3. Too many skills with uniformly high proficiency
     expert_count = sum(1 for s in skills if s.get("proficiency") in ("expert", "advanced"))
     if len(skills) > 25 and expert_count > 15:
         score += 0.25
 
-    # 4. Non-tech title + many ML skills = contradictory profile
     title = _n(profile.get("current_title", ""))
     non_tech = {"marketing manager", "sales manager", "operations manager",
                 "hr manager", "finance manager", "accountant", "customer support"}
@@ -184,7 +196,6 @@ def _honeypot_score(candidate: dict) -> float:
         if len(ml_skills) >= 5:
             score += 0.30
 
-    # 5. Perfect completeness + 2+ years inactive
     completeness = signals.get("profile_completeness_score", 0)
     last_str     = signals.get("last_active_date", "")
     try:
@@ -200,10 +211,6 @@ def _honeypot_score(candidate: dict) -> float:
 # ── Text construction for embedding ───────────────────────────────────────────
 
 def _build_embed_text(c: dict) -> str:
-    """
-    Dense text string for sentence-transformers.
-    Headline + summary + top-3 career descriptions + skills by proficiency.
-    """
     parts: list[str] = []
     profile = c.get("profile", {})
 
@@ -237,10 +244,6 @@ def _build_embed_text(c: dict) -> str:
 # ── Core filter pipeline ───────────────────────────────────────────────────────
 
 def apply_filters(candidates: list[dict]) -> pl.DataFrame:
-    """
-    Run all hard filters. Returns Polars DataFrame with all candidates
-    (passed_hard_filters = True/False). Use run_parser() to get only passing rows.
-    """
     rows = []
     for c in candidates:
         cid     = c.get("candidate_id", "")
@@ -252,7 +255,6 @@ def apply_filters(candidates: list[dict]) -> pl.DataFrame:
         passed = True
         reason = ""
 
-        # Cheapest checks first
         yoe = float(profile.get("years_of_experience", 0))
         if yoe < JD_MIN_YOE:
             passed, reason = False, "insufficient_yoe"
@@ -266,6 +268,8 @@ def apply_filters(candidates: list[dict]) -> pl.DataFrame:
             passed, reason = False, "research_only"
         elif _is_wrong_domain_only(skills):
             passed, reason = False, "wrong_domain_cv_speech_robotics"
+        elif _has_no_relevant_skills(skills, career):
+            passed, reason = False, "no_relevant_ai_ml_skills"
 
         hp = _honeypot_score(c)
 
@@ -293,13 +297,6 @@ def apply_filters(candidates: list[dict]) -> pl.DataFrame:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def run_parser(candidates_path: Path | str | None = None, use_sample: bool = False) -> pl.DataFrame:
-    """
-    Full Stage 1 pipeline. Returns only the passing candidates.
-
-    Args:
-        candidates_path: explicit path override (optional)
-        use_sample:      use sample_candidates.json (50 records, fast)
-    """
     if candidates_path is not None:
         path = Path(candidates_path)
     elif use_sample:
@@ -318,14 +315,14 @@ def run_parser(candidates_path: Path | str | None = None, use_sample: bool = Fal
     df = apply_filters(candidates)
     passing = df.filter(pl.col("passed_hard_filters"))
 
-    if log.isEnabledFor(logging.DEBUG):
-        reason_counts = (
-            df.filter(~pl.col("passed_hard_filters"))
-            .group_by("filter_reason")
-            .agg(pl.len().alias("count"))
-            .sort("count", descending=True)
-        )
-        log.debug("Drop reasons:\n%s", reason_counts)
+    # Log drop reasons at INFO level so we can always see what's being filtered
+    reason_counts = (
+        df.filter(~pl.col("passed_hard_filters"))
+        .group_by("filter_reason")
+        .agg(pl.len().alias("count"))
+        .sort("count", descending=True)
+    )
+    log.info("Drop reasons:\n%s", reason_counts)
 
     return passing
 
