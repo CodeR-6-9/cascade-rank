@@ -9,7 +9,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT              = Path(__file__).resolve().parent
+ROOT              = Path(__file__).resolve().parent.parent
 DATA_DIR          = ROOT / "data"
 CANDIDATES_JSONL  = DATA_DIR / "raw" / "candidates.jsonl"
 CANDIDATES_GZ     = DATA_DIR / "raw" / "candidates.jsonl.gz"
