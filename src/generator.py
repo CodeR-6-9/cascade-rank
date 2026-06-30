@@ -7,7 +7,7 @@ from llama_cpp import Llama
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_MODEL_PATH = BASE_DIR / "models" / "phi-3-mini.gguf"
+DEFAULT_MODEL_PATH = BASE_DIR.parent / "models" / "phi-3-mini.gguf"
 
 
 class ReasoningGenerator:

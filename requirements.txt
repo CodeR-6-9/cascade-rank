@@ -1,11 +1,17 @@
-# Data Processing & Utilities
-polars>=0.20.0
+# Data Processing & Speed
 orjson>=3.9.0
-numpy
+polars>=0.20.0
+numpy>=1.24.0
 
-# Machine Learning & Search
-sentence-transformers
-faiss-cpu
+# Vector Math & Embeddings
+faiss-cpu>=1.7.4
+sentence-transformers>=2.5.0
 
 # Document Parsing
-python-docx
+python-docx>=1.1.0
+
+# Local LLM Inference (CPU)
+llama-cpp-python>=0.2.56
+
+# UI / Sandbox (For app.py)
+streamlit>=1.32.0

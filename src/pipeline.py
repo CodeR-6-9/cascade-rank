@@ -1,97 +1,171 @@
-from __future__ import annotations
-import argparse, logging, time, sys, os, json, random
+"""
+pipeline.py — Master Orchestrator for CascadeRank.
+Executes Stages 1-4 within the 5-minute, 16GB RAM constraints.
+
+Usage:
+    python -m src.pipeline
+"""
+
+import time
+import logging
+import json
+import gc
+import csv
 from pathlib import Path
+
 import polars as pl
+import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Import our custom modules
+from src.parser import run_parser
+from src.ranker import run_ranker
+from src.retrieval import load_job_description, EXPECTED_DIMENSIONS
+from src.generator import ReasoningGenerator
+from src.config import JD_PATH, SUBMISSION_PATH, MODEL_PATH
 
-from config import (
-    CANDIDATES_JSONL, SAMPLE_CANDIDATES,
-    SUBMISSION_PATH, OUTPUT_DIR,
-    REQUIRED_SKILLS, NLP_IR_SKILLS,
-)
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [pipeline] %(message)s")
 log = logging.getLogger(__name__)
 
-def stage1_parse(data_path):
-    from src.parser import run_parser
-    log.info("=== STAGE 1: Parsing & filtering ===")
-    t0 = time.time()
-    df = run_parser(candidates_path=Path(data_path))
-    log.info("Stage 1 done in %.1fs — %d candidates survive", time.time()-t0, df.height)
-    return df
+def run_full_pipeline():
+    start_time = time.time()
+    log.info("Initiating Pipeline...")
 
-def _mock_semantic_scores(df):
-    random.seed(42)
-    rows = df.to_dicts()
-    for r in rows:
-        c = json.loads(r.get("profile_json", "{}"))
-        skills = {s.get("name","").lower() for s in c.get("skills",[])}
-        yoe = float(c.get("profile",{}).get("years_of_experience", 0))
-        rel = len(skills & (REQUIRED_SKILLS | NLP_IR_SKILLS))
-        base = 0.30 + min(rel * 0.05, 0.40)
-        r["semantic_score"] = min(0.95, base + (0.10 if 5<=yoe<=9 else 0) + random.uniform(-0.05,0.05))
-    return pl.DataFrame(rows)
+    # ════════════════════════════════════════════════════════════════════════════════
+    # STAGE 1: PARSER (Heuristics & Trap Filter)
+    # ════════════════════════════════════════════════════════════════════════════════
+    log.info("--- STAGE 1: Deterministic Filtering ---")
+    s1_start = time.time()
+    
+    # run_parser natively loads from config.CANDIDATES_JSONL
+    passed_df = run_parser() 
+    candidates_dicts = passed_df.to_dicts()
+    
+    log.info(f"Stage 1 completed in {time.time() - s1_start:.2f}s. Surviving candidates: {len(candidates_dicts)}")
 
-def stage2_retrieve(df, use_mock=False):
-    log.info("=== STAGE 2: Semantic retrieval ===")
-    if use_mock:
-        log.info("Using mock semantic scores")
-        return _mock_semantic_scores(df)
-    try:
-        from src.retrieval import run_retrieval
-        return run_retrieval(df)
-    except Exception as e:
-        log.warning("retrieval.py not ready (%s) — using mock", e)
-        return _mock_semantic_scores(df)
+    # ════════════════════════════════════════════════════════════════════════════════
+    # STAGE 2: RETRIEVAL (Semantic Search)
+    # ════════════════════════════════════════════════════════════════════════════════
+    log.info("--- STAGE 2: Dense Semantic Retrieval ---")
+    s2_start = time.time()
+    
+    # 1. Load JD text
+    jd_text = load_job_description(JD_PATH)
+    
+    # 2. Extract text for embeddings
+    texts_to_embed = [c["text_to_embed"] for c in candidates_dicts]
+    candidate_ids = [c["candidate_id"] for c in candidates_dicts]
+    
+    # 3. Initialize model and embed
+    log.info("Loading SentenceTransformer...")
+    embed_model = SentenceTransformer(MODEL_PATH)
+    
+    log.info("Generating candidate embeddings...")
+    embeddings = embed_model.encode(
+        texts_to_embed,
+        batch_size=128,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=False
+    )
+    
+    # 4. Build FAISS Index in-memory
+    index = faiss.IndexFlatIP(EXPECTED_DIMENSIONS)
+    index.add(embeddings)
+    
+    # 5. Embed JD and search
+    jd_embedding = embed_model.encode(
+        [jd_text],
+        convert_to_numpy=True,
+        normalize_embeddings=True
+    )
+    
+    # Get top 300 candidates to pass to Ranker
+    top_k = min(300, index.ntotal)
+    distances, indices = index.search(jd_embedding, top_k)
+    
+    # Merge semantic scores back into the candidate dictionaries
+    semantic_results = []
+    for i, faiss_idx in enumerate(indices[0]):
+        if faiss_idx == -1: continue
+        
+        cid = candidate_ids[faiss_idx]
+        # Find original parsed dictionary
+        original_dict = next(item for item in candidates_dicts if item["candidate_id"] == cid)
+        original_dict["semantic_score"] = float(distances[0][i])
+        semantic_results.append(original_dict)
 
-def stage3_rank(df):
-    from src.ranker import rank_candidates, build_submission
-    log.info("=== STAGE 3: Behavioral ranking ===")
-    t0 = time.time()
-    submission = build_submission(rank_candidates(df))
-    log.info("Stage 3 done in %.1fs", time.time()-t0)
-    return submission
+    log.info(f"Stage 2 completed in {time.time() - s2_start:.2f}s.")
+    
+    # RAM CLEARANCE: Delete heavy embedding objects before loading LLM
+    del embed_model
+    del index
+    del embeddings
+    gc.collect()
+    log.info("Cleared embedding model from memory.")
 
-def stage4_generate(submission):
-    log.info("=== STAGE 4: Reasoning generation ===")
-    try:
-        from src.generator import run_generator
-        return run_generator(submission)
-    except Exception as e:
-        log.warning("generator.py not available (%s) — keeping heuristic reasoning", e)
-    return submission
+    # ════════════════════════════════════════════════════════════════════════════════
+    # STAGE 3: RANKER (Behavioral Multipliers)
+    # ════════════════════════════════════════════════════════════════════════════════
+    log.info("--- STAGE 3: Behavioral Re-Ranking ---")
+    s3_start = time.time()
+    
+    # run_ranker handles the multipliers and returns the final Top 100 DataFrame
+    final_100_df = run_ranker(semantic_results, output_path=SUBMISSION_PATH)
+    
+    log.info(f"Stage 3 completed in {time.time() - s3_start:.2f}s. Extracted Top {len(final_100_df)}.")
 
-def run_pipeline(data_path, use_mock=False, output_path=None):
-    output_path = output_path or SUBMISSION_PATH
-    wall = time.time()
-    df = stage1_parse(data_path)
-    df = stage2_retrieve(df, use_mock=use_mock)
-    submission = stage3_rank(df)
-    submission = stage4_generate(submission)
-    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-    from src.ranker import write_submission
-    write_submission(submission, output_path)
-    elapsed = time.time() - wall
-    rows = submission.to_dicts()
-    print(f"\n{'='*60}\n  Pipeline complete in {elapsed:.1f}s\n{'='*60}\n")
-    for r in rows[:10]:
-        print(f"  #{r['rank']:>3}  {r['candidate_id']}  score={r['score']:.4f}")
-        print(f"       {str(r['reasoning'])[:90]}...\n")
-    return submission
+    # ════════════════════════════════════════════════════════════════════════════════
+    # STAGE 4: GENERATOR (LLM Reasoning)
+    # ════════════════════════════════════════════════════════════════════════════════
+    log.info("--- STAGE 4: Local Reasoning Generation ---")
+    s4_start = time.time()
+    
+    log.info("Booting Phi-3 GGUF model via llama.cpp...")
+    generator = ReasoningGenerator(n_ctx=1024, n_threads=4) 
+    
+    # Convert the Top 100 DF to dicts to iterate through
+    top_100_dicts = final_100_df.to_dicts()
+    
+    enriched_rows = []
+    for idx, row in enumerate(top_100_dicts):
+        # Rehydrate the raw candidate JSON so the generator has access to formatting helpers
+        raw_candidate = json.loads(row["profile_json"])
+        record = {
+            "candidate_id": row["candidate_id"],
+            "rank": row["rank"],
+            "score": row["score"],
+            "candidate": raw_candidate 
+        }
+        
+        # Generate the reasoning
+        result = generator.generate(record, jd_text)
+        
+        enriched_rows.append({
+            "candidate_id": result["candidate_id"],
+            "rank": result["rank"],
+            "score": result["score"],
+            "reasoning": result["reasoning"]
+        })
+        
+        if (idx + 1) % 10 == 0:
+            log.info(f"Generated reasoning for {idx + 1}/100 candidates...")
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--sample", action="store_true")
-    ap.add_argument("--mock",   action="store_true")
-    ap.add_argument("--output", type=str, default=str(SUBMISSION_PATH))
-    args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
-    data_path = SAMPLE_CANDIDATES if args.sample else CANDIDATES_JSONL
-    if not Path(data_path).exists():
-        log.error("Data file not found: %s", data_path)
-        raise SystemExit(1)
-    run_pipeline(data_path=data_path, use_mock=args.mock, output_path=Path(args.output))
+    log.info(f"Stage 4 completed in {time.time() - s4_start:.2f}s.")
+
+    # ════════════════════════════════════════════════════════════════════════════════
+    # FINAL EXPORT
+    # ════════════════════════════════════════════════════════════════════════════════
+    # Overwrite the CSV created in Stage 3 with the new LLM reasonings
+    with open(SUBMISSION_PATH, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["candidate_id", "rank", "score", "reasoning"])
+        writer.writeheader()
+        writer.writerows(enriched_rows)
+
+    total_time = time.time() - start_time
+    log.info(f"🎉 Pipeline Complete! Total Execution Time: {total_time:.2f}s")
+    log.info(f"Final output saved to {SUBMISSION_PATH}")
 
 if __name__ == "__main__":
-    main()
+    run_full_pipeline()

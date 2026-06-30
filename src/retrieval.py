@@ -89,7 +89,7 @@ def build_and_save_index():
     with open(DATA_PATH, "r", encoding="utf-8") as f:
         candidates = [json.loads(line) for line in f]
     
-    candidates = candidates[:1000]  # for testing
+    candidates = candidates[:1000]  
     
     processed_candidates = [
         {
@@ -100,13 +100,14 @@ def build_and_save_index():
     ]
     
     texts = [c["text"] for c in processed_candidates]
-    model = SentenceTransformer(MODEL_PATH)
+    model = SentenceTransformer(str(MODEL_PATH))
     embeddings = model.encode(
         texts,
         batch_size=64,
         convert_to_numpy=True,
         normalize_embeddings=True
     )
+    embeddings = embeddings.astype('float32')
     
     info = validate_embeddings(embeddings, len(processed_candidates), EXPECTED_DIMENSIONS)
     print(info)
@@ -166,6 +167,7 @@ def search_candidates(job_description, model, index, candidate_mapping, candidat
         convert_to_numpy=True,
         normalize_embeddings=True
     )
+    query_embedding = query_embedding.astype('float32')
     
     if query_embedding.shape != (1, EXPECTED_DIMENSIONS):
         raise ValueError(f"Query embedding shape mismatch. Expected (1, {EXPECTED_DIMENSIONS}), got {query_embedding.shape}")
@@ -196,9 +198,8 @@ if __name__ == "__main__":
     
     index, mapping, metadata = load_artifacts()
 
-    search_model = SentenceTransformer(MODEL_PATH)
+    search_model = SentenceTransformer(str(MODEL_PATH))
 
     jd = load_job_description(JD_PATH)
 
     top_candidates = search_candidates(jd, search_model, index, mapping, metadata, top_k=500)
-    
