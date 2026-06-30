@@ -25,7 +25,7 @@ import polars as pl
 
 import os
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import (
+from src.config import (
     TODAY, TOP_N, SUBMISSION_PATH, SUBMISSION_COLS,
     ALLOWED_LOCATIONS, PREFERRED_LOCATIONS,
     GHOST_INACTIVITY_DAYS, STRONG_RECENCY_DAYS,

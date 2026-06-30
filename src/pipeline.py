@@ -23,7 +23,10 @@ from src.parser import run_parser
 from src.ranker import run_ranker
 from src.retrieval import load_job_description, EXPECTED_DIMENSIONS
 from src.generator import ReasoningGenerator
-from src.config import JD_PATH, SUBMISSION_PATH, MODEL_PATH
+from src.config import SUBMISSION_PATH, ROOT
+
+JD_PATH = ROOT / "data" / "raw" / "job_description.docx"
+MODEL_PATH = ROOT / "models" / "all-MiniLM-L6-v2"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [pipeline] %(message)s")
 log = logging.getLogger(__name__)
@@ -59,15 +62,15 @@ def run_full_pipeline():
     
     # 3. Initialize model and embed
     log.info("Loading SentenceTransformer...")
-    embed_model = SentenceTransformer(MODEL_PATH)
+    embed_model = SentenceTransformer(str(MODEL_PATH))
     
     log.info("Generating candidate embeddings...")
     embeddings = embed_model.encode(
         texts_to_embed,
-        batch_size=128,
+        batch_size=32,
         convert_to_numpy=True,
         normalize_embeddings=True,
-        show_progress_bar=False
+        show_progress_bar=True
     )
     
     # 4. Build FAISS Index in-memory

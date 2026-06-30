@@ -30,7 +30,7 @@ import polars as pl
 
 import os
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from config import (
+from src.config import (
     PURE_SERVICES_FIRMS, WRONG_DOMAIN_SKILLS, NLP_IR_SKILLS,
     REQUIRED_SKILLS, HYPE_ONLY_SKILLS, RESEARCH_ONLY_TITLES,
     ALLOWED_LOCATIONS, TODAY, GHOST_INACTIVITY_DAYS, MIN_RESPONSE_RATE,
