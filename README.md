@@ -1,4 +1,4 @@
-# 🌊 CascadeRank: Offline AI Recruitment Pipeline
+#  CascadeRank: Offline AI Recruitment Pipeline
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Polars](https://img.shields.io/badge/Polars-Blazing_Fast-orange.svg)
@@ -12,7 +12,7 @@ Designed to filter **100,000 raw candidate profiles** down to the **Top 100 best
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 To survive strict 5-minute execution limits and a 16 GB RAM ceiling on a CPU-only environment, the pipeline is divided into three asynchronous processing stages, capped off with a real-time generative AI dashboard.
 
@@ -37,7 +37,7 @@ To survive strict 5-minute execution limits and a 16 GB RAM ceiling on a CPU-onl
 
 ---
 
-## 📥 Prerequisites: Offline Model Setup (Required)
+##  Prerequisites: Offline Model Setup (Required)
 
 To ensure strict data privacy and adhere to the 100% offline hackathon constraint, CascadeRank runs all inference locally on your CPU. To keep this repository lightweight, the large model binaries are excluded via `.gitignore` — pushing gigabytes of model weights to GitHub bloats the repo, slows cloning to a crawl, and typically fails outright since GitHub blocks files over 100 MB.
 
@@ -65,7 +65,7 @@ Handles the live AI candidate reasoning in the Streamlit dashboard.
 
 > 💡 **Tip:** Rather than sending judges to raw HuggingFace pages to hunt for the right files, zip both the `all-MiniLM-L6-v2` folder and the `phi-3-mini.gguf` file together into a single `CascadeRank_Models.zip`, upload it to Google Drive, and share that one link above. It turns setup from a multi-step scavenger hunt into a single download.
 
-### ✅ Final directory check
+###  Final directory check
 
 Before running `python -m src.pipeline`, your file tree should look exactly like this:
 
@@ -83,7 +83,7 @@ cascade-rank/
 
 ---
 
-## 🚀 Installation & Setup
+##  Installation & Setup
 
 **1. Clone the repository**
 
@@ -117,7 +117,7 @@ pip install -r requirements.txt
 
 ---
 
-## 💻 Usage
+##  Usage
 
 ### 1. Execute the pipeline
 
@@ -137,7 +137,8 @@ streamlit run app.py
 
 ---
 
-## 👨‍💻 Author
+##  Author
 
 **Hridesh Mehrotra**
-*Built for the 2026 AI Recruitment Hackathon.*
+**Apoorva Pandey**
+*Built for the 2026 AI Recruitment Hackathon.(Redrob AI)*
