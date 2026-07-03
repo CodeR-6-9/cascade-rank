@@ -137,8 +137,4 @@ streamlit run app.py
 
 ---
 
-##  Author
-
-**Hridesh Mehrotra**
-**Apoorva Pandey**
 *Built for the 2026 AI Recruitment Hackathon.(Redrob AI)*
