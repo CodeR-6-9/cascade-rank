@@ -24,9 +24,9 @@ import polars as pl
 # Make src/ importable
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-# ---------------------------------------------------------------------------
+
 # Page config
-# ---------------------------------------------------------------------------
+
 st.set_page_config(
     page_title="Cascade Rank — Redrob Candidate Ranker",
     page_icon="🎯",
@@ -36,22 +36,21 @@ st.set_page_config(
 st.title("🎯 Cascade Rank")
 st.caption("Intelligent Candidate Discovery & Ranking — Redrob Hackathon")
 
-# ---------------------------------------------------------------------------
 # Sidebar
-# ---------------------------------------------------------------------------
+
 st.sidebar.header("About")
 st.sidebar.markdown("""
 **Pipeline stages:**
-1. 🔍 Parse & filter (hard disqualifiers)
-2. 🧠 Semantic scoring (sentence-transformers + FAISS)
-3. 📊 Behavioral signal ranking
-4. ✍️ Reasoning generation
+1.  Parse & filter (hard disqualifiers)
+2.  Semantic scoring (sentence-transformers + FAISS)
+3. Behavioral signal ranking
+4.  Reasoning generation
 
 **Compute constraints met:**
-- ✅ CPU only
-- ✅ No network calls during ranking
-- ✅ < 16 GB RAM
-- ✅ < 5 min runtime
+-  CPU only
+- No network calls during ranking
+-  < 16 GB RAM
+-  < 5 min runtime
 """)
 
 st.sidebar.header("Settings")
@@ -61,9 +60,9 @@ use_mock = st.sidebar.checkbox(
     help="Uncheck once retrieval.py is ready to use real sentence-transformer scores"
 )
 
-# ---------------------------------------------------------------------------
+
 # File upload
-# ---------------------------------------------------------------------------
+
 st.header("1. Upload Candidates")
 st.markdown("Upload a `.json` (array) or `.jsonl` (one candidate per line) file.")
 
@@ -73,9 +72,9 @@ uploaded = st.file_uploader(
     help="Use sample_candidates.json from the hackathon bundle to test"
 )
 
-# ---------------------------------------------------------------------------
+
 # Run pipeline
-# ---------------------------------------------------------------------------
+
 if uploaded is not None:
     st.header("2. Run Pipeline")
 
@@ -96,7 +95,7 @@ if uploaded is not None:
                 # Stage 1 — parse
                 from parser import run_parser
                 df = run_parser(tmp_path)
-                st.success(f"✅ Stage 1: {df.height} candidates passed hard filters")
+                st.success(f" Stage 1: {df.height} candidates passed hard filters")
 
                 # Stage 2 — semantic scoring
                 if use_mock:
@@ -107,20 +106,20 @@ if uploaded is not None:
                     try:
                         from retrieval import run_retrieval
                         df = run_retrieval(df)
-                        st.success("✅ Stage 2: Real semantic scores applied")
+                        st.success(" Stage 2: Real semantic scores applied")
                     except ImportError:
                         from pipeline import _mock_semantic_scores
                         df = _mock_semantic_scores(df)
-                        st.warning("⚠️ Stage 2: retrieval.py not found — using mock scores")
+                        st.warning(" Stage 2: retrieval.py not found — using mock scores")
 
                 # Stage 3 — rank
                 from ranker import rank_candidates, build_submission
                 ranked     = rank_candidates(df)
                 submission = build_submission(ranked)
-                st.success(f"✅ Stage 3: Top {ranked.height} candidates ranked")
+                st.success(f" Stage 3: Top {ranked.height} candidates ranked")
 
                 elapsed = time.time() - t0
-                st.success(f"⏱️ Total time: {elapsed:.1f}s")
+                st.success(f" Total time: {elapsed:.1f}s")
 
                 # Store in session state
                 st.session_state["submission"] = submission
@@ -131,9 +130,9 @@ if uploaded is not None:
             finally:
                 os.unlink(tmp_path)
 
-# ---------------------------------------------------------------------------
+
 # Results
-# ---------------------------------------------------------------------------
+
 if "submission" in st.session_state:
     submission = st.session_state["submission"]
     rows = submission.to_dicts()
