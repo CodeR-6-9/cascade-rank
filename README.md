@@ -39,7 +39,7 @@ To survive strict 5-minute execution limits and a 16 GB RAM ceiling on a CPU-onl
 
 ##  Prerequisites: Offline Model Setup (Required)
 
-To ensure strict data privacy and adhere to the 100% offline hackathon constraint, CascadeRank runs all inference locally on your CPU. To keep this repository lightweight, the large model binaries are excluded via `.gitignore` — pushing gigabytes of model weights to GitHub bloats the repo, slows cloning to a crawl, and typically fails outright since GitHub blocks files over 100 MB.
+To ensure strict data privacy and adhere to the 100% offline constraint, CascadeRank runs all inference locally on your CPU. To keep this repository lightweight, the large model binaries are excluded via `.gitignore` — pushing gigabytes of model weights to GitHub bloats the repo, slows cloning to a crawl, and typically fails outright since GitHub blocks files over 100 MB.
 
 Before running the pipeline, you **must manually download** the following models and place them in the `models/` directory at the root of the project.
 
@@ -137,4 +137,4 @@ streamlit run app.py
 
 ---
 
-*Built for the 2026 AI Recruitment Hackathon.(Redrob AI)*
+
