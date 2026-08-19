@@ -1,9 +1,11 @@
 .DS_Store
+
 data/raw/candidates.jsonl
 data/raw/sample_candidates.json
 data/output/
 src/__pycache__/
 __pycache__/
+
 venv/
 .venv/
 *.pyc
