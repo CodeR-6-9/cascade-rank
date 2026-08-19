@@ -213,7 +213,7 @@
         "search_appearance_30d": {
           "type": "integer",
           "minimum": 0,
-          "description": "Number of times profile appeared in recruiter searches in last 30 days."
+          "description": "Number of times a profile appeared in recruiter searches in last 30 days."
         },
         "saved_by_recruiters_30d": {
           "type": "integer",
